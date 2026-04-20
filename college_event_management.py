@@ -1,298 +1,61 @@
+import csv
 import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime
+from datetime import datetime, timedelta
+from tkinter import filedialog, messagebox, ttk
 
-try:
-    import oracledb as cx_Oracle
-except ImportError:
-    cx_Oracle = None
-
-
-# -----------------------------
-# Update these with your Oracle 11g credentials
-# -----------------------------
-ORACLE_USER = "system"
-ORACLE_PASSWORD = "123456"
-ORACLE_DSN = "localhost:1521/XE"
-# Required for Oracle 11g: set this to your Instant Client folder path.
-# Example: r"C:\\oracle\\instantclient_19_22"
-ORACLE_CLIENT_LIB_DIR = r"C:\oraclexe\app\oracle\product\11.2.0\server\bin"
+from config import (
+    ORACLE_CLIENT_LIB_DIR,
+    ORACLE_DSN,
+    ORACLE_PASSWORD,
+    ORACLE_USER,
+    PREVENT_PAST_DATES,
+)
+from event_repository import EventRepository
+from ui_layout import EventUIBuilder
 
 
 class EventManagementApp:
     def __init__(self, root):
         self.root = root
         self.root.title("College Event Management System")
-        self.root.geometry("1180x730")
+        self.root.geometry("1280x780")
         self.root.configure(bg="#e9f1ee")
 
-        self.conn = None
-        self.cursor = None
+        self.repo = EventRepository(
+            user=ORACLE_USER,
+            password=ORACLE_PASSWORD,
+            dsn=ORACLE_DSN,
+            client_lib_dir=ORACLE_CLIENT_LIB_DIR,
+        )
 
         self.var_event_id = tk.StringVar()
         self.var_event_name = tk.StringVar()
         self.var_event_date = tk.StringVar()
         self.var_venue = tk.StringVar()
+        self.var_search_text = tk.StringVar()
+        self.var_search_by = tk.StringVar(value="Event Name")
+        self.var_start_date = tk.StringVar()
+        self.var_end_date = tk.StringVar()
         self.var_status = tk.StringVar(value="Ready")
+
+        self.total_count_var = tk.StringVar(value="0")
+        self.upcoming_count_var = tk.StringVar(value="0")
+        self.past_count_var = tk.StringVar(value="0")
 
         self.build_ui()
         self.connect_db()
         self.load_all_events()
 
     def build_ui(self):
-        header = tk.Frame(self.root, bg="#4f8a5b", height=85)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        title = tk.Label(
-            header,
-            text="College Event Management System",
-            font=("Times New Roman", 24, "bold"),
-            bg="#4f8a5b",
-            fg="white",
-        )
-        title.pack(pady=(12, 0))
-
-        subtitle = tk.Label(
-            header,
-            text="Event Registration and Records",
-            font=("Segoe UI", 11, "bold"),
-            bg="#4f8a5b",
-            fg="#d9f3df",
-        )
-        subtitle.pack()
-
-        body = tk.Frame(self.root, bg="#e9f1ee")
-        body.pack(fill="both", expand=True, padx=14, pady=12)
-
-        form_frame = tk.LabelFrame(
-            body,
-            text=" Event Details ",
-            font=("Segoe UI", 12, "bold"),
-            bg="#f8fcf9",
-            fg="#3f6d49",
-            bd=2,
-            relief="groove",
-            padx=14,
-            pady=12,
-        )
-        form_frame.pack(fill="x")
-
-        tk.Label(
-            form_frame,
-            text="Event ID",
-            font=("Segoe UI", 11, "bold"),
-            bg="#f8fcf9",
-            fg="#274131",
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=8)
-
-        tk.Entry(
-            form_frame,
-            textvariable=self.var_event_id,
-            font=("Segoe UI", 11),
-            bd=1,
-            relief="solid",
-            width=28,
-        ).grid(row=0, column=1, padx=8, pady=8)
-
-        tk.Label(
-            form_frame,
-            text="Event Name",
-            font=("Segoe UI", 11, "bold"),
-            bg="#f8fcf9",
-            fg="#274131",
-        ).grid(row=0, column=2, sticky="w", padx=8, pady=8)
-
-        tk.Entry(
-            form_frame,
-            textvariable=self.var_event_name,
-            font=("Segoe UI", 11),
-            bd=1,
-            relief="solid",
-            width=40,
-        ).grid(row=0, column=3, padx=8, pady=8)
-
-        tk.Label(
-            form_frame,
-            text="Date (DD-MM-YYYY)",
-            font=("Segoe UI", 11, "bold"),
-            bg="#f8fcf9",
-            fg="#274131",
-        ).grid(row=1, column=0, sticky="w", padx=8, pady=8)
-
-        tk.Entry(
-            form_frame,
-            textvariable=self.var_event_date,
-            font=("Segoe UI", 11),
-            bd=1,
-            relief="solid",
-            width=28,
-        ).grid(row=1, column=1, padx=8, pady=8)
-
-        tk.Label(
-            form_frame,
-            text="Venue",
-            font=("Segoe UI", 11, "bold"),
-            bg="#f8fcf9",
-            fg="#274131",
-        ).grid(row=1, column=2, sticky="w", padx=8, pady=8)
-
-        tk.Entry(
-            form_frame,
-            textvariable=self.var_venue,
-            font=("Segoe UI", 11),
-            bd=1,
-            relief="solid",
-            width=40,
-        ).grid(row=1, column=3, padx=8, pady=8)
-
-        button_frame = tk.Frame(body, bg="#e9f1ee")
-        button_frame.pack(fill="x", pady=(12, 8))
-
-        tk.Button(
-            button_frame,
-            text="Add Event",
-            font=("Segoe UI", 10, "bold"),
-            bg="#2ca25f",
-            fg="white",
-            activebackground="#258c53",
-            activeforeground="white",
-            width=14,
-            bd=0,
-            cursor="hand2",
-            command=self.add_event,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Update",
-            font=("Segoe UI", 10, "bold"),
-            bg="#2b83ba",
-            fg="white",
-            activebackground="#216a97",
-            activeforeground="white",
-            width=14,
-            bd=0,
-            cursor="hand2",
-            command=self.update_event,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Delete",
-            font=("Segoe UI", 10, "bold"),
-            bg="#d94841",
-            fg="white",
-            activebackground="#b23934",
-            activeforeground="white",
-            width=14,
-            bd=0,
-            cursor="hand2",
-            command=self.delete_event,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="View All",
-            font=("Segoe UI", 10, "bold"),
-            bg="#6c5ce7",
-            fg="white",
-            activebackground="#5a4cc3",
-            activeforeground="white",
-            width=14,
-            bd=0,
-            cursor="hand2",
-            command=self.load_all_events,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Clear Form",
-            font=("Segoe UI", 10, "bold"),
-            bg="#6b7280",
-            fg="white",
-            activebackground="#4b5563",
-            activeforeground="white",
-            width=14,
-            bd=0,
-            cursor="hand2",
-            command=self.clear_form,
-        ).pack(side="left", padx=5)
-
-        table_frame = tk.LabelFrame(
-            body,
-            text=" Event Records ",
-            font=("Segoe UI", 12, "bold"),
-            bg="#f8fcf9",
-            fg="#3f6d49",
-            bd=2,
-            relief="groove",
-            padx=8,
-            pady=8,
-        )
-        table_frame.pack(fill="both", expand=True, pady=(6, 0))
-
-        columns = ("event_id", "event_name", "event_date", "venue")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings")
-
-        self.tree.heading("event_id", text="Event ID")
-        self.tree.heading("event_name", text="Event Name")
-        self.tree.heading("event_date", text="Date")
-        self.tree.heading("venue", text="Venue")
-
-        self.tree.column("event_id", width=120, anchor="center")
-        self.tree.column("event_name", width=360, anchor="w")
-        self.tree.column("event_date", width=170, anchor="center")
-        self.tree.column("venue", width=300, anchor="w")
-
-        y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
-        x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
-        self.tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
-
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        y_scroll.grid(row=0, column=1, sticky="ns")
-        x_scroll.grid(row=1, column=0, sticky="ew")
-
-        table_frame.grid_rowconfigure(0, weight=1)
-        table_frame.grid_columnconfigure(0, weight=1)
-
-        self.tree.bind("<<TreeviewSelect>>", self.on_row_select)
-
-        status_bar = tk.Label(
-            self.root,
-            textvariable=self.var_status,
-            font=("Segoe UI", 10),
-            anchor="w",
-            bg="#dce8e1",
-            fg="#1f3a2c",
-            padx=10,
-            pady=6,
-        )
-        status_bar.pack(fill="x", side="bottom")
+        EventUIBuilder.build(self)
 
     def connect_db(self):
-        if cx_Oracle is None:
-            messagebox.showerror(
-                "Missing Dependency",
-                "Oracle driver is not installed. Install it using: pip install oracledb",
-            )
-            self.var_status.set("Database library missing: install oracledb")
-            return
-
         try:
-            if ORACLE_CLIENT_LIB_DIR:
-                cx_Oracle.init_oracle_client(lib_dir=ORACLE_CLIENT_LIB_DIR)
-
-            self.conn = cx_Oracle.connect(
-                user=ORACLE_USER,
-                password=ORACLE_PASSWORD,
-                dsn=ORACLE_DSN,
-            )
-            self.cursor = self.conn.cursor()
+            self.repo.connect()
             self.var_status.set("Connected to Oracle successfully")
         except Exception as exc:
-            err_text = str(exc)
-            if "DPY-3010" in err_text:
+            err_text = EventRepository.format_error(exc)
+            if EventRepository.is_dpy_3010_error(exc):
                 messagebox.showerror(
                     "Database Connection Error",
                     "Oracle 11g requires thick mode.\n\n"
@@ -306,91 +69,90 @@ class EventManagementApp:
                 messagebox.showerror("Database Connection Error", err_text)
                 self.var_status.set("Connection failed. Check credentials, DSN, and listener")
 
-    def validate_inputs(self):
+    def parse_date(self, date_text):
+        try:
+            return datetime.strptime(date_text.strip(), "%d-%m-%Y")
+        except ValueError:
+            return None
+
+    def validate_event_payload(self, require_id=False):
         event_id = self.var_event_id.get().strip()
         event_name = self.var_event_name.get().strip()
-        event_date = self.var_event_date.get().strip()
+        event_date_text = self.var_event_date.get().strip()
         venue = self.var_venue.get().strip()
 
-        if not event_id or not event_name or not event_date or not venue:
-            messagebox.showwarning("Missing Data", "Please fill all input fields.")
+        if require_id and not event_id:
+            messagebox.showwarning("Missing Event ID", "Event ID is required for this action.")
             return None
 
-        if not event_id.isdigit():
-            messagebox.showwarning("Invalid Event ID", "Event ID must be a number.")
+        if require_id and not event_id.isdigit():
+            messagebox.showwarning("Invalid Event ID", "Event ID must be numeric.")
             return None
 
-        try:
-            parsed_date = datetime.strptime(event_date, "%d-%m-%Y")
-        except ValueError:
+        if not event_name or not event_date_text or not venue:
+            messagebox.showwarning("Missing Data", "Please fill Event Name, Date, and Venue.")
+            return None
+
+        event_date = self.parse_date(event_date_text)
+        if event_date is None:
+            messagebox.showwarning("Invalid Date", "Date must be in DD-MM-YYYY format.")
+            return None
+
+        if PREVENT_PAST_DATES and event_date.date() < datetime.now().date():
             messagebox.showwarning(
                 "Invalid Date",
-                "Date must be in DD-MM-YYYY format.",
+                "Past dates are not allowed for new or updated events.",
             )
             return None
 
-        return int(event_id), event_name, parsed_date, venue
+        event_id_num = int(event_id) if event_id else None
+        return event_id_num, event_name, event_date, venue
 
     def add_event(self):
-        if self.cursor is None:
+        if self.repo.cursor is None:
             messagebox.showerror("Database Error", "No Oracle connection available.")
             return
 
-        validated = self.validate_inputs()
+        validated = self.validate_event_payload(require_id=True)
         if not validated:
             return
 
-        event_id, event_name, parsed_date, venue = validated
+        event_id, event_name, event_date, venue = validated
 
         try:
-            self.cursor.execute(
-                """
-                INSERT INTO events (event_id, event_name, event_date, venue)
-                VALUES (:1, :2, :3, :4)
-                """,
-                (event_id, event_name, parsed_date, venue),
-            )
-            self.conn.commit()
+            new_id = self.repo.add_event(event_id, event_name, event_date, venue)
             self.load_all_events()
-            self.var_status.set(f"Added event ID {event_id}")
-            messagebox.showinfo("Success", "Event added successfully.")
+            self.var_status.set(f"Added event ID {new_id}")
+            messagebox.showinfo("Success", f"Event added successfully with ID {new_id}.")
             self.clear_form()
-        except cx_Oracle.IntegrityError:
-            messagebox.showerror(
-                "Duplicate Event ID",
-                "This Event ID already exists. Use a different ID.",
-            )
         except Exception as exc:
-            messagebox.showerror("Insert Error", str(exc))
+            err_text = EventRepository.format_error(exc)
+            if EventRepository.is_duplicate_id_error(exc):
+                messagebox.showerror(
+                    "Insert Error",
+                    "Event ID already exists. Please use a unique Event ID.",
+                )
+            else:
+                messagebox.showerror("Insert Error", err_text)
 
     def update_event(self):
-        if self.cursor is None:
+        if self.repo.cursor is None:
             messagebox.showerror("Database Error", "No Oracle connection available.")
             return
 
-        validated = self.validate_inputs()
+        validated = self.validate_event_payload(require_id=True)
         if not validated:
             return
 
-        event_id, event_name, parsed_date, venue = validated
+        event_id, event_name, event_date, venue = validated
 
         try:
-            self.cursor.execute(
-                """
-                UPDATE events
-                SET event_name = :1,
-                    event_date = :2,
-                    venue = :3
-                WHERE event_id = :4
-                """,
-                (event_name, parsed_date, venue, event_id),
-            )
+            affected_rows = self.repo.update_event(event_id, event_name, event_date, venue)
 
-            if self.cursor.rowcount == 0:
+            if affected_rows == 0:
                 messagebox.showwarning("Not Found", "No event found with this Event ID.")
                 return
 
-            self.conn.commit()
             self.load_all_events()
             self.var_status.set(f"Updated event ID {event_id}")
             messagebox.showinfo("Success", "Event updated successfully.")
@@ -399,7 +161,7 @@ class EventManagementApp:
             messagebox.showerror("Update Error", str(exc))
 
     def delete_event(self):
-        if self.cursor is None:
+        if self.repo.cursor is None:
             messagebox.showerror("Database Error", "No Oracle connection available.")
             return
 
@@ -420,13 +182,11 @@ class EventManagementApp:
             return
 
         try:
-            self.cursor.execute("DELETE FROM events WHERE event_id = :1", (int(event_id),))
-
-            if self.cursor.rowcount == 0:
+            affected_rows = self.repo.delete_event(int(event_id))
+            if affected_rows == 0:
                 messagebox.showwarning("Not Found", "No event found with this Event ID.")
                 return
 
-            self.conn.commit()
             self.load_all_events()
             self.var_status.set(f"Deleted event ID {event_id}")
             messagebox.showinfo("Success", "Event deleted successfully.")
@@ -434,31 +194,170 @@ class EventManagementApp:
         except Exception as exc:
             messagebox.showerror("Delete Error", str(exc))
 
-    def load_all_events(self):
+    def _render_rows(self, rows):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        if self.cursor is None:
+        today = datetime.now().date()
+        next_week = today + timedelta(days=7)
+
+        for event_id, event_name, event_date, venue in rows:
+            date_str = event_date.strftime("%d-%m-%Y") if event_date else ""
+            tags = ()
+            if event_date and today <= event_date.date() <= next_week:
+                tags = ("upcoming",)
+
+            self.tree.insert(
+                "",
+                "end",
+                values=(event_id, event_name, date_str, venue),
+                tags=tags,
+            )
+
+    def refresh_dashboard(self):
+        if self.repo.cursor is None:
+            return
+
+        total_events, upcoming_events, past_events = self.repo.get_dashboard_counts()
+
+        self.total_count_var.set(str(total_events))
+        self.upcoming_count_var.set(str(upcoming_events))
+        self.past_count_var.set(str(past_events))
+
+    def load_all_events(self):
+        if self.repo.cursor is None:
             return
 
         try:
-            self.cursor.execute(
-                """
-                SELECT event_id,
-                       event_name,
-                       TO_CHAR(event_date, 'DD-MM-YYYY') AS event_date,
-                       venue
-                FROM events
-                ORDER BY event_date, event_id
-                """
-            )
-            rows = self.cursor.fetchall()
-            for row in rows:
-                self.tree.insert("", "end", values=row)
-
+            rows = self.repo.fetch_all_events()
+            self._render_rows(rows)
+            self.refresh_dashboard()
             self.var_status.set(f"Loaded {len(rows)} event record(s)")
         except Exception as exc:
             messagebox.showerror("Fetch Error", str(exc))
+
+    def sort_by_date(self):
+        self.load_sorted("event_date, event_id", "Sorted by date")
+
+    def sort_by_name(self):
+        self.load_sorted("UPPER(event_name), event_id", "Sorted by name")
+
+    def load_sorted(self, order_clause, status_text):
+        if self.repo.cursor is None:
+            return
+
+        try:
+            rows = self.repo.fetch_sorted_events(order_clause)
+            self._render_rows(rows)
+            self.refresh_dashboard()
+            self.var_status.set(f"{status_text}. {len(rows)} record(s) shown")
+        except Exception as exc:
+            messagebox.showerror("Sort Error", str(exc))
+
+    def search_events(self):
+        if self.repo.cursor is None:
+            return
+
+        search_text = self.var_search_text.get().strip()
+        if not search_text:
+            messagebox.showwarning("Missing Input", "Enter a value for search.")
+            return
+
+        search_by = self.var_search_by.get()
+
+        try:
+            if search_by == "Event Name":
+                rows = self.repo.search_by_name(search_text)
+            elif search_by == "Venue":
+                rows = self.repo.search_by_venue(search_text)
+            else:
+                parsed_date = self.parse_date(search_text)
+                if parsed_date is None:
+                    messagebox.showwarning("Invalid Date", "Use DD-MM-YYYY for date search.")
+                    return
+                rows = self.repo.search_by_date(parsed_date)
+
+            self._render_rows(rows)
+            self.refresh_dashboard()
+            self.var_status.set(f"Search result: {len(rows)} record(s)")
+        except Exception as exc:
+            messagebox.showerror("Search Error", str(exc))
+
+    def filter_date_range(self):
+        if self.repo.cursor is None:
+            return
+
+        start_text = self.var_start_date.get().strip()
+        end_text = self.var_end_date.get().strip()
+
+        if not start_text or not end_text:
+            messagebox.showwarning("Missing Input", "Enter both start and end dates.")
+            return
+
+        start_date = self.parse_date(start_text)
+        end_date = self.parse_date(end_text)
+
+        if start_date is None or end_date is None:
+            messagebox.showwarning("Invalid Date", "Date range must be DD-MM-YYYY.")
+            return
+
+        if start_date > end_date:
+            messagebox.showwarning("Invalid Range", "Start date cannot be after end date.")
+            return
+
+        try:
+            rows = self.repo.filter_by_date_range(start_date, end_date)
+            self._render_rows(rows)
+            self.refresh_dashboard()
+            self.var_status.set(f"Date range filter: {len(rows)} record(s)")
+        except Exception as exc:
+            messagebox.showerror("Filter Error", str(exc))
+
+    def reset_filters(self):
+        self.var_search_text.set("")
+        self.var_start_date.set("")
+        self.var_end_date.set("")
+        self.load_all_events()
+
+    def export_csv(self):
+        rows = [self.tree.item(item, "values") for item in self.tree.get_children()]
+        if not rows:
+            messagebox.showwarning("No Data", "No rows available to export.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Export Event Records",
+        )
+        if not file_path:
+            return
+
+        try:
+            csv_rows = []
+            for row in rows:
+                event_id, event_name, date_text, venue = row
+
+                # Force date as text so Excel does not auto-format it as #######
+                # when the column is narrow or locale parsing differs.
+                safe_date = date_text
+                try:
+                    datetime.strptime(str(date_text), "%d-%m-%Y")
+                    safe_date = f"'{date_text}"
+                except ValueError:
+                    pass
+
+                csv_rows.append([event_id, event_name, safe_date, venue])
+
+            with open(file_path, "w", newline="", encoding="utf-8-sig") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(["Event ID", "Event Name", "Date", "Venue"])
+                writer.writerows(csv_rows)
+
+            self.var_status.set(f"Exported {len(rows)} row(s) to CSV")
+            messagebox.showinfo("Export Complete", "CSV exported successfully.")
+        except Exception as exc:
+            messagebox.showerror("Export Error", str(exc))
 
     def on_row_select(self, _event):
         selected = self.tree.focus()
@@ -482,10 +381,7 @@ class EventManagementApp:
 
     def close_app(self):
         try:
-            if self.cursor:
-                self.cursor.close()
-            if self.conn:
-                self.conn.close()
+            self.repo.close()
         except Exception:
             pass
         self.root.destroy()

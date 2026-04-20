@@ -6,8 +6,10 @@ CREATE TABLE events (
     event_name   VARCHAR2(120) NOT NULL,
     event_date   DATE NOT NULL,
     venue        VARCHAR2(120) NOT NULL,
-    created_at   DATE DEFAULT SYSDATE NOT NULL
+    created_at   DATE DEFAULT SYSDATE NOT NULL,
+    CONSTRAINT chk_event_date CHECK (event_date >= TRUNC(SYSDATE))
 );
 
 CREATE INDEX idx_events_date ON events(event_date);
 CREATE INDEX idx_events_name ON events(event_name);
+CREATE INDEX idx_events_venue ON events(venue);
