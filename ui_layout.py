@@ -40,7 +40,7 @@ class EventUIBuilder:
             padx=14,
             pady=0,
         )
-        value_label.pack(pady=(0, 6))
+        value_label.pack(pady=6)
         return frame
 
     @staticmethod
