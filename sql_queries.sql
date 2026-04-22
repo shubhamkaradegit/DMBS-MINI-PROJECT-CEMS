@@ -1,25 +1,20 @@
--- ============================================================================
--- COLLEGE EVENT MANAGEMENT SYSTEM - COMPLETE SQL QUERIES
--- ============================================================================
--- Database: Oracle 11g
--- This file contains ALL SQL code used in the project.
--- Run these scripts in SQL*Plus or SQL Developer.
--- ============================================================================
+-- COLLEGE EVENT MANAGEMENT SYSTEM - SQL QUERIES
+-- Simple version for beginners
 
--- SECTION 1: TABLE CREATION (Run once during initial setup)
+-- ============================================================================
+-- TABLE CREATION (Run this once to create the table)
 -- ============================================================================
 
 CREATE TABLE events (
-    event_id     NUMBER PRIMARY KEY,
-    event_name   VARCHAR2(120) NOT NULL,
-    event_date   DATE NOT NULL,
-    venue        VARCHAR2(120) NOT NULL,
-    created_at   DATE DEFAULT SYSDATE NOT NULL,
-    CONSTRAINT chk_event_date CHECK (event_date >= TRUNC(SYSDATE))
+    event_id     NUMBER PRIMARY KEY,           -- Unique ID for each event
+    event_name   VARCHAR2(120) NOT NULL,      -- Name of the event
+    event_date   DATE NOT NULL,               -- When the event happens
+    venue        VARCHAR2(120) NOT NULL,      -- Where the event happens
+    created_at   DATE DEFAULT SYSDATE NOT NULL -- When record was created
 );
 
 -- ============================================================================
--- SECTION 2: INDEX CREATION (Improves query performance)
+-- CREATE INDEXES (Makes searching faster)
 -- ============================================================================
 
 CREATE INDEX idx_events_date ON events(event_date);
@@ -27,52 +22,18 @@ CREATE INDEX idx_events_name ON events(event_name);
 CREATE INDEX idx_events_venue ON events(venue);
 
 -- ============================================================================
--- SECTION 3: UPGRADE SCRIPT FOR EXISTING INSTALLATIONS
+-- INSERT - Add a new event
 -- ============================================================================
--- Use this if EVENTS table already exists and has data.
--- These scripts safely add constraints and indexes without data loss.
+-- :1 = event_id, :2 = event_name, :3 = event_date, :4 = venue
 
--- 3.1: Add date check constraint if missing
-DECLARE
-    v_count NUMBER;
-BEGIN
-    SELECT COUNT(*) INTO v_count
-    FROM user_constraints
-    WHERE constraint_name = 'CHK_EVENT_DATE'
-      AND table_name = 'EVENTS';
-
-    IF v_count = 0 THEN
-        EXECUTE IMMEDIATE 'ALTER TABLE events ADD CONSTRAINT chk_event_date CHECK (event_date >= TRUNC(SYSDATE))';
-    END IF;
-END;
-/
-
--- 3.2: Create venue index if missing
-DECLARE
-    v_count NUMBER;
-BEGIN
-    SELECT COUNT(*) INTO v_count FROM user_indexes WHERE index_name = 'IDX_EVENTS_VENUE';
-    IF v_count = 0 THEN
-        EXECUTE IMMEDIATE 'CREATE INDEX idx_events_venue ON events(venue)';
-    END IF;
-END;
-/
-
--- ============================================================================
--- SECTION 4: CRUD OPERATIONS (Used by the application)
--- ============================================================================
-
--- 4.1: INSERT - Add a new event
--- Called by: EventRepository.add_event()
--- Parameters: event_id, event_name, event_date, venue
 INSERT INTO events (event_id, event_name, event_date, venue)
 VALUES (:1, :2, :3, :4);
 
 -- ============================================================================
+-- UPDATE - Change an existing event
+-- ============================================================================
+-- :1 = new event_name, :2 = new event_date, :3 = new venue, :4 = event_id
 
--- 4.2: UPDATE - Modify an existing event
--- Called by: EventRepository.update_event()
--- Parameters: event_name, event_date, venue, event_id
 UPDATE events
 SET event_name = :1,
     event_date = :2,
@@ -80,41 +41,41 @@ SET event_name = :1,
 WHERE event_id = :4;
 
 -- ============================================================================
+-- DELETE - Remove an event
+-- ============================================================================
+-- :1 = event_id (the ID of event to delete)
 
--- 4.3: DELETE - Remove an event
--- Called by: EventRepository.delete_event()
--- Parameters: event_id
-DELETE FROM events WHERE event_id = :1;
+DELETE FROM events 
+WHERE event_id = :1;
 
 -- ============================================================================
--- SECTION 5: READ OPERATIONS - FETCH ALL EVENTS
+-- SEARCH QUERIES - Find events in different ways
 -- ============================================================================
 
--- 5.1: Fetch all events (sorted by date and ID)
--- Called by: EventRepository.fetch_all_events()
--- Returns: All events ordered by event_date ascending
+-- SEARCH 1 - Find all events (sorted by date)
+-- Shows all events ordered by when they happen
+
 SELECT event_id, event_name, event_date, venue
 FROM events
 ORDER BY event_date, event_id;
 
 -- ============================================================================
 
--- 5.2: Fetch sorted events (dynamic sorting)
--- Called by: EventRepository.fetch_sorted_events()
--- Parameters: order_clause (e.g., "event_date ASC", "event_name DESC")
--- Returns: Events with custom sort order
+-- SEARCH 2 - Sort events in different ways
+-- :1 = how you want to sort (example: "event_date ASC" or "event_name DESC")
+-- ASC = smallest to biggest, DESC = biggest to smallest
+
 SELECT event_id, event_name, event_date, venue
 FROM events
 ORDER BY {order_clause};
 
 -- ============================================================================
--- SECTION 6: SEARCH OPERATIONS
--- ============================================================================
 
--- 6.1: Search events by name (case-insensitive)
--- Called by: EventRepository.search_by_name()
--- Parameters: search_text (partial match)
--- Returns: Events matching the name pattern
+-- SEARCH 3 - Find events by name (search for part of the name)
+-- :1 = text to search (example: if you type "con%", it finds "Conference")
+-- UPPER() ignores uppercase/lowercase differences
+-- LIKE means 'contains or matches'
+
 SELECT event_id, event_name, event_date, venue
 FROM events
 WHERE UPPER(event_name) LIKE UPPER(:1)
@@ -122,10 +83,9 @@ ORDER BY event_date, event_id;
 
 -- ============================================================================
 
--- 6.2: Search events by venue (case-insensitive)
--- Called by: EventRepository.search_by_venue()
--- Parameters: search_text (partial match)
--- Returns: Events matching the venue pattern
+-- SEARCH 4 - Find events by venue (search for part of the venue)
+-- :1 = venue name to search (example: "Hall%" finds all halls)
+
 SELECT event_id, event_name, event_date, venue
 FROM events
 WHERE UPPER(venue) LIKE UPPER(:1)
@@ -133,10 +93,11 @@ ORDER BY event_date, event_id;
 
 -- ============================================================================
 
--- 6.3: Search events by exact date
--- Called by: EventRepository.search_by_date()
--- Parameters: parsed_date
--- Returns: Events on the specified date
+-- SEARCH 5 - Find events on exactly one date
+-- :1 = the date you want to find
+-- TRUNC() removes the time, keeps only the date part
+-- = means exactly equal to this date
+
 SELECT event_id, event_name, event_date, venue
 FROM events
 WHERE TRUNC(event_date) = TRUNC(:1)
@@ -144,38 +105,37 @@ ORDER BY event_date, event_id;
 
 -- ============================================================================
 
--- 6.4: Filter events by date range
--- Called by: EventRepository.filter_by_date_range()
--- Parameters: start_date, end_date
--- Returns: Events between the date range (inclusive)
+-- SEARCH 6 - Find events between two dates (date range)
+-- :1 = start date, :2 = end date
+-- BETWEEN finds events on or after start date AND on or before end date
+
 SELECT event_id, event_name, event_date, venue
 FROM events
 WHERE TRUNC(event_date) BETWEEN TRUNC(:1) AND TRUNC(:2)
 ORDER BY event_date, event_id;
 
 -- ============================================================================
--- SECTION 7: DASHBOARD STATISTICS
+-- STATISTICS - Get counts and summaries
 -- ============================================================================
 
--- 7.1: Count total events
--- Called by: EventRepository.get_dashboard_counts()
--- Returns: Total number of events in database
+-- STAT 1 - Count total events in database
+-- COUNT(*) counts how many rows exist
+
 SELECT COUNT(*) FROM events;
 
 -- ============================================================================
 
--- 7.2: Count upcoming events (today and future)
--- Called by: EventRepository.get_dashboard_counts()
--- Returns: Number of events with date >= today
-SELECT COUNT(*) FROM events WHERE TRUNC(event_date) >= TRUNC(SYSDATE);
+-- STAT 2 - Count upcoming events (today and future)
+-- >= means greater than or equal to
+-- SYSDATE is today's date
+
+SELECT COUNT(*) FROM events 
+WHERE TRUNC(event_date) >= TRUNC(SYSDATE);
 
 -- ============================================================================
 
--- 7.3: Count past events (before today)
--- Called by: EventRepository.get_dashboard_counts()
--- Returns: Number of events with date < today
-SELECT COUNT(*) FROM events WHERE TRUNC(event_date) < TRUNC(SYSDATE);
+-- STAT 3 - Count past events (before today)
+-- < means less than
 
--- ============================================================================
--- END OF SQL QUERIES
--- ============================================================================
+SELECT COUNT(*) FROM events 
+WHERE TRUNC(event_date) < TRUNC(SYSDATE);
